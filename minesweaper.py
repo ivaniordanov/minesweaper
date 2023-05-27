@@ -1,12 +1,5 @@
-import itertools
 import numpy as np
 import scipy.signal as signal
-
-def limited_range(value, min_value=0, max_value = 7, size=1):
-    return range(max(value-size, min_value), min(value+size+1, max_value))
-
-def sides(point, boundaries):
-    return (limited_range(position, max_value=boundary) for position, boundary in zip(point, boundaries))
 
 def _not(func):
     def not_func(x):
@@ -15,8 +8,10 @@ def _not(func):
 
 class Board(object):
     _mine_threshold = 0
-    def __init__(self, value):
+    def __init__(self, value, mask):
         self._value = value
+        self._mask = mask
+        self._pad_width = [{0: (1,0), l-1: (0,1)} for l in value.shape]
 
     def update_view(self, view, point):
         return 'game over' if self._is_mine(point) else view.open(self, [point])
@@ -25,7 +20,7 @@ class Board(object):
         return self._value[point]
 
     def neighbours_of(self, point):
-        return self._all_neighbours(point) if self._safe(point) else [] # stop DFS
+        return self._all_neighbours(point) if self._safe(point) else []  # stop DFS
 
     def _is_mine(self, point):
         return self._value[point] < self._mine_threshold
@@ -34,11 +29,20 @@ class Board(object):
         return self._value[point] == self._mine_threshold
 
     def _all_neighbours(self, point):
-        return itertools.product(*sides(point, self._value.shape))
+        return [tuple (x-1 + point) for x in np.argwhere((self.pad(point)==0) * self._mask) ]
+
+    def adjacent_to(self, point):
+        return self._value[[slice(max(0, p-1), min(self._value.shape[i], p+2)) for i, p in enumerate(point)]]
+
+    def pad(self, point):
+        return np.pad(self.adjacent_to(point), self.pad_width(point), 'constant', constant_values = 1  )
+
+    def pad_width(self, point):
+        return [self._pad_width[i].get(p, (0,0)) for i, p in enumerate(point)]
 
     @classmethod
     def create(cls, shape, number_of_mines, mask):
-        return cls(signal.convolve2d(_new_board(shape, number_of_mines), mask, mode='same'))
+        return cls(signal.convolve2d(_new_board(shape, number_of_mines), mask, mode='same'), mask==-1)
 
 def _seed_mines(flatten_board, number_of_mines, fill=-1):
     flatten_board[np.random.choice(list(range(flatten_board.shape[0])), replace=False, size=number_of_mines)] = fill
@@ -49,7 +53,6 @@ def _new_board(shape, number_of_mines):
 
 def _flatten_board(shape):
     return np.zeros(shape).flatten()
-
 
 class View(object):
     visited_threshold = -1
@@ -64,7 +67,7 @@ class View(object):
         for point in points: self._visit(point, board)
 
     def _visit(self, point, board):
-        self._value[point] = max(-1, board.at(point)) # DFS
+        self._value[point] = board.at(point) # DFS
         self.open(board, board.neighbours_of(point))
 
     def _not_visited(self, points):
@@ -98,8 +101,7 @@ class Minesweaper(object):
     def __repr__(self):
         return self._view.__repr__()
 
-
 game = Minesweaper.create()
 print (game)
-game.command(0,0)
+game.command(1,1)
 print (game)
